@@ -1,0 +1,782 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Simulador de Colas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: consola de operación de sucursal. Panel de parámetros oscuro a la izquierda (como el puesto de control del digiturno), área de trabajo clara con pestañas por apartado; en móvil el panel se pliega arriba */
+:root{
+  --bg:#f4f5f2; --paper:#ffffff; --ink:#1a2430; --ink-2:#5a6672; --rule:#d9ddd6; --rule-2:#eceee9;
+  --console:#1c2a38; --console-2:#25374a; --console-ink:#e8edf1; --console-dim:#9fb0bf;
+  --signal:#f2b01e; --theory:#2d5f8b; --sim:#d0592b; --limit:#b3261e;
+  --ok:#2f7d4a; --ok-bg:#e6f1e9; --bad:#b3261e; --bad-bg:#f8e6e4;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Public Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171c; --paper:#192129; --ink:#e4e9ed; --ink-2:#9aa8b4; --rule:#2c3640; --rule-2:#222b33;
+  --console:#0d1318; --console-2:#1b2630; --console-ink:#e4e9ed; --console-dim:#8c9daa;
+  --signal:#f5bd3c; --theory:#6fa6d6; --sim:#f0875a; --limit:#f07a70;
+  --ok:#6fcf8f; --ok-bg:#183424; --bad:#f08a80; --bad-bg:#3a1f1d; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#12171c; --paper:#192129; --ink:#e4e9ed; --ink-2:#9aa8b4; --rule:#2c3640; --rule-2:#222b33;
+  --console:#0d1318; --console-2:#1b2630; --console-ink:#e4e9ed; --console-dim:#8c9daa;
+  --signal:#f5bd3c; --theory:#6fa6d6; --sim:#f0875a; --limit:#f07a70;
+  --ok:#6fcf8f; --ok-bg:#183424; --bad:#f08a80; --bad-bg:#3a1f1d; color-scheme:dark }
+
+*{box-sizing:border-box}
+html,body{background:var(--bg)}
+body{color:var(--ink);font-family:var(--f-body);font-size:14.5px;line-height:1.5;margin:0}
+h1,h2,h3{margin:0;text-wrap:balance}
+p{margin:0}
+a{color:inherit}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.label{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.08em;font-weight:600;font-size:.82rem}
+
+.app{display:grid;grid-template-columns:300px minmax(0,1fr);min-height:100vh}
+@media (max-width:920px){.app{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- consola de parámetros ---------- */
+.console{background:var(--console);color:var(--console-ink);display:flex;flex-direction:column;
+  padding-block:20px 24px;padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:18px;
+  position:sticky;top:0;height:100vh;overflow:auto}
+@media (max-width:920px){.console{position:static;height:auto;padding-right:max(16px,env(safe-area-inset-right,0px));padding-left:max(16px,env(safe-area-inset-left,0px))}}
+.brand{display:flex;flex-direction:column;gap:2px;padding-bottom:16px;border-bottom:1px solid var(--console-2)}
+.brand h1{font-family:var(--f-display);font-weight:700;font-size:1.7rem;letter-spacing:.01em;line-height:1.05}
+.brand p{color:var(--console-dim);font-size:.8rem}
+.display{margin-top:14px;background:#000;border:1px solid var(--console-2);padding:10px 12px;display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 10px}
+.display .label{color:var(--console-dim);font-size:.72rem}
+.display b{font-family:var(--f-mono);color:var(--signal);font-size:1.6rem;font-weight:600;letter-spacing:.04em;grid-row:span 2;text-shadow:0 0 12px rgba(242,176,30,.35)}
+.display span.m{color:var(--console-ink);font-size:.78rem}
+.ctl-toggle{display:none}
+@media (max-width:920px){
+  .ctl-toggle{display:flex;justify-content:space-between;align-items:center;margin-top:14px;background:var(--console-2);border:0;color:var(--console-ink);padding:10px 12px;font:600 .9rem var(--f-body);cursor:pointer}
+  .console.closed .ctl-body{display:none}
+}
+.ctl-body{display:flex;flex-direction:column;gap:22px;margin-top:18px}
+.grp{display:flex;flex-direction:column;gap:12px}
+.grp > .label{color:var(--signal);border-bottom:1px solid var(--console-2);padding-bottom:4px}
+.fld{display:flex;flex-direction:column;gap:3px}
+.fld-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.fld label{font-size:.86rem;font-weight:500}
+.fld .hint{font-size:.74rem;color:var(--console-dim)}
+.fld input[type=number],.fld select{background:var(--console-2);color:var(--console-ink);border:1px solid transparent;font-size:.84rem;padding:4px 6px;border-radius:2px}
+.fld input[type=number]{width:88px;text-align:right;font-family:var(--f-mono)}
+.fld select{font-family:var(--f-body);width:100%;padding:6px 8px}
+input[type=range]{width:100%;accent-color:var(--signal);margin:2px 0}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.cbtn{background:transparent;border:1px solid var(--console-dim);color:var(--console-ink);font:500 .8rem var(--f-body);padding:5px 10px;border-radius:2px;cursor:pointer}
+.cbtn:hover{border-color:var(--signal);color:var(--signal)}
+.csv{font-size:.78rem;color:var(--console-dim);display:flex;flex-direction:column;gap:8px}
+.csv code{font-family:var(--f-mono);color:var(--console-ink);font-size:.74rem}
+.csv input[type=file]{font-size:.76rem;color:var(--console-dim);max-width:100%}
+#csvStatus{color:var(--console-ink)}
+
+/* ---------- área de trabajo ---------- */
+.work{min-width:0;display:flex;flex-direction:column}
+.tabbar{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--rule);
+  padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px))}
+@media (max-width:920px){.tabbar{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}}
+.tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.tabs a{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.07em;font-weight:600;font-size:.92rem;
+  text-decoration:none;color:var(--ink-2);padding:14px 12px 11px;border-bottom:3px solid transparent;white-space:nowrap}
+.tabs a:hover{color:var(--ink)}
+.tabs a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--signal)}
+
+.view{padding-block:24px 48px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:22px;max-width:1180px;width:100%}
+@media (max-width:920px){.view{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}}
+.vhead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:8px 20px;border-bottom:2px solid var(--ink);padding-bottom:10px}
+.vhead h2{font-family:var(--f-display);font-weight:700;font-size:clamp(1.6rem,3vw,2.1rem);line-height:1.05;letter-spacing:.005em}
+.vhead .label{color:var(--ink-2)}
+.intro{color:var(--ink-2);max-width:70ch}
+
+.panel{background:var(--paper);border:1px solid var(--rule);display:flex;flex-direction:column;min-width:0}
+.panel-h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 16px;padding:12px 16px;border-bottom:1px solid var(--rule-2)}
+.panel-h h3{font-family:var(--f-display);font-weight:600;font-size:1.15rem;letter-spacing:.01em}
+.panel-b{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.howto{font-size:.82rem;color:var(--ink-2);max-width:78ch}
+
+/* resumen */
+.verdict{display:grid;grid-template-columns:auto auto 1fr;gap:0;background:var(--paper);border:1px solid var(--rule)}
+@media (max-width:680px){.verdict{grid-template-columns:1fr 1fr}.verdict .txt{grid-column:1/-1}}
+.counter{padding:16px 22px;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:2px;min-width:140px}
+.counter .label{color:var(--ink-2)}
+.counter b{font-family:var(--f-mono);font-size:3rem;line-height:1;font-weight:600}
+.counter small{font-size:.78rem;color:var(--ink-2)}
+.counter.rec{background:var(--console);color:var(--console-ink)}
+.counter.rec .label,.counter.rec small{color:var(--console-dim)}
+.counter.rec b{color:var(--signal)}
+.verdict .txt{padding:16px 20px;display:flex;align-items:center;font-size:.98rem;line-height:1.55;max-width:70ch}
+.verdict .txt.bad{color:var(--bad)}
+
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--rule);background:var(--paper)}
+@media (max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{padding:14px 16px;border-right:1px solid var(--rule-2);display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi:last-child{border-right:0}
+@media (max-width:760px){.kpi:nth-child(2){border-right:0}.kpi:nth-child(-n+2){border-bottom:1px solid var(--rule-2)}}
+.kpi .label{color:var(--ink-2);font-size:.76rem}
+.kpi .v{font-family:var(--f-mono);font-size:1.6rem;font-weight:500;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:.76rem;color:var(--ink-2)}
+
+.previews{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:760px){.previews{grid-template-columns:minmax(0,1fr)}}
+.preview{text-decoration:none;transition:border-color .15s}
+.preview:hover{border-color:var(--ink-2)}
+.preview .go{font-size:.8rem;color:var(--theory);font-weight:600}
+.mini{position:relative;height:140px}
+.checks{display:flex;flex-direction:column;gap:6px;font-size:.88rem}
+.checks div{display:flex;justify-content:space-between;gap:12px}
+.big-ratio{font-family:var(--f-mono);font-size:2.2rem;font-weight:600;line-height:1}
+
+/* segmentos (vistas parciales) */
+.seg{display:inline-flex;border:1px solid var(--rule)}
+.seg button{background:transparent;border:0;border-right:1px solid var(--rule);color:var(--ink-2);font:600 .8rem var(--f-body);padding:6px 12px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+
+.canvas{position:relative;height:320px;width:100%}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px}
+@media (max-width:820px){.split{grid-template-columns:minmax(0,1fr)}}
+.facts{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:.86rem;margin:0;align-content:start}
+.facts dt{color:var(--ink-2)}
+.facts dd{margin:0;text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.facts .sep{grid-column:1/-1;border-top:1px solid var(--rule-2);margin:4px 0}
+
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:600px}
+th,td{padding:9px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--rule-2)}
+th:first-child,td:first-child{text-align:left}
+thead th{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.06em;font-size:.78rem;color:var(--ink-2);font-weight:600;border-bottom:1px solid var(--rule)}
+td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:.84rem}
+tr.is-cur td{background:var(--rule-2)}
+tr.is-rec td:first-child{box-shadow:inset 3px 0 0 var(--signal);font-weight:700}
+.tag{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:2px;letter-spacing:.02em}
+.tag.ok{background:var(--ok-bg);color:var(--ok)}
+.tag.bad{background:var(--bad-bg);color:var(--bad)}
+.tag.na{background:var(--rule-2);color:var(--ink-2)}
+.small-tag{font-size:.7rem;color:var(--ink-2);font-weight:500}
+
+.method{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:760px){.method{grid-template-columns:minmax(0,1fr)}}
+.method .panel-b p,.method .panel-b li{font-size:.9rem;color:var(--ink-2)}
+.method ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.formula{font-family:var(--f-mono);font-size:.84rem;background:var(--rule-2);padding:8px 10px;color:var(--ink);overflow-x:auto;white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+  <aside class="console" id="console" aria-label="Parámetros del sistema">
+    <div class="brand">
+      <h1>Simulador de Colas</h1>
+      <p>Probabilidad y Procesos Estocásticos · ECCI · 2026-2</p>
+    </div>
+    <div class="display" aria-live="polite">
+      <span class="label">Modelo (Kendall)</span><b id="kendall">M/M/3</b>
+      <span class="m" id="dispRho">ρ = 0,89</span>
+    </div>
+    <button class="ctl-toggle" id="ctlToggle" type="button" aria-expanded="true">Parámetros <span id="ctlArrow">▲</span></button>
+
+    <div class="ctl-body">
+      <div class="grp">
+        <span class="label">Caso de estudio</span>
+        <div class="fld"><label for="preset">Plantilla</label>
+          <select id="preset">
+            <option value="banco">Sucursal bancaria</option>
+            <option value="urg">Admisión de urgencias</option>
+            <option value="call">Call center</option>
+            <option value="custom">Personalizado</option>
+          </select>
+          <span class="hint">valores de ejemplo; reemplácelos por los del caso real</span></div>
+      </div>
+
+      <div class="grp">
+        <span class="label">Demanda y capacidad</span>
+        <div class="fld"><div class="fld-top"><label for="lam">Llegadas λ</label><input type="number" id="lam_n" min="1" max="500" step="1" value="40"></div>
+          <input type="range" id="lam" min="5" max="150" step="1" value="40"><span class="hint">usuarios por hora</span></div>
+        <div class="fld"><div class="fld-top"><label for="mu">Servicio μ</label><input type="number" id="mu_n" min="0.5" max="200" step="0.5" value="15"></div>
+          <input type="range" id="mu" min="2" max="60" step="0.5" value="15"><span class="hint">atenciones por hora de cada servidor</span></div>
+        <div class="fld"><div class="fld-top"><label for="c">Servidores actuales c</label><input type="number" id="c_n" min="1" max="40" step="1" value="3"></div>
+          <input type="range" id="c" min="1" max="15" step="1" value="3"><span class="hint">módulos o puestos abiertos</span></div>
+      </div>
+
+      <div class="grp">
+        <span class="label">Tiempo de servicio</span>
+        <div class="fld"><label for="dist">Distribución</label>
+          <select id="dist">
+            <option value="exp">Exponencial · M/M/c</option>
+            <option value="logn">Lognormal · M/G/c</option>
+            <option value="det">Constante · M/D/c</option>
+          </select></div>
+        <div class="fld" id="cvField" hidden><div class="fld-top"><label for="cv">Coef. de variación</label><input type="number" id="cv_n" min="0.05" max="3" step="0.05" value="0.6"></div>
+          <input type="range" id="cv" min="0.1" max="2" step="0.05" value="0.6"><span class="hint">desviación estándar ÷ media</span></div>
+      </div>
+
+      <div class="grp">
+        <span class="label">Simulación</span>
+        <div class="fld"><div class="fld-top"><label for="hours">Franja</label><input type="number" id="hours_n" min="1" max="24" step="0.5" value="8"></div>
+          <input type="range" id="hours" min="1" max="12" step="0.5" value="8"><span class="hint">horas de un día típico</span></div>
+        <div class="fld"><div class="fld-top"><label for="reps">Réplicas</label><input type="number" id="reps_n" min="5" max="200" step="1" value="30"></div>
+          <input type="range" id="reps" min="5" max="100" step="1" value="30"><span class="hint">días simulados independientes</span></div>
+        <div class="fld"><div class="fld-top"><label for="seed_n">Semilla</label><input type="number" id="seed_n" min="1" max="99999" step="1" value="2026"></div></div>
+        <div><button class="cbtn" id="newSeed" type="button">Nueva semilla</button></div>
+      </div>
+
+      <div class="grp">
+        <span class="label">Costos y meta</span>
+        <div class="fld"><div class="fld-top"><label for="cs_n">Costo por servidor</label><input type="number" id="cs_n" min="0" step="1000" value="25000"></div><span class="hint">COP por hora</span></div>
+        <div class="fld"><div class="fld-top"><label for="cw_n">Costo de espera</label><input type="number" id="cw_n" min="0" step="1000" value="20000"></div><span class="hint">COP por hora de un usuario en fila</span></div>
+        <div class="fld"><div class="fld-top"><label for="thr">Espera aceptable</label><input type="number" id="thr_n" min="0.5" max="60" step="0.5" value="5"></div>
+          <input type="range" id="thr" min="0.5" max="30" step="0.5" value="5"><span class="hint">minutos promedio en fila</span></div>
+      </div>
+
+      <div class="grp">
+        <span class="label">Datos reales</span>
+        <div class="csv">
+          <span>CSV, una fila por usuario: <code>entre_llegadas_min, servicio_min</code></span>
+          <input type="file" id="csv" accept=".csv,.txt">
+          <span id="csvStatus">Sin archivo: se usan datos simulados.</span>
+          <div><button class="cbtn" id="clearCsv" type="button" hidden>Quitar datos</button></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="work">
+    <div class="tabbar">
+      <nav class="tabs" aria-label="Apartados">
+        <a href="#resumen" data-v="resumen">Resumen</a>
+        <a href="#escenarios" data-v="escenarios">Escenarios</a>
+        <a href="#validacion" data-v="validacion">Validación</a>
+        <a href="#dia" data-v="dia">Día simulado</a>
+        <a href="#ajuste" data-v="ajuste">Ajuste de datos</a>
+        <a href="#metodo" data-v="metodo">Método</a>
+      </nav>
+    </div>
+
+    <!-- RESUMEN -->
+    <section class="view" id="v-resumen">
+      <div class="vhead"><h2>Resumen del sistema</h2><span class="label">Objetivo 5 · Recomendar</span></div>
+      <div class="verdict">
+        <div class="counter"><span class="label">Servidores hoy</span><b id="cCur">3</b><small id="cCurS">–</small></div>
+        <div class="counter rec"><span class="label">Recomendados</span><b id="cRec">4</b><small id="cRecS">–</small></div>
+        <div class="txt" id="summary">Calculando…</div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span class="label">Utilización ρ</span><span class="v" id="kRho">–</span><span class="s" id="kRhoS">–</span></div>
+        <div class="kpi"><span class="label">Espera en fila W<sub>q</sub></span><span class="v" id="kWq">–</span><span class="s" id="kWqS">–</span></div>
+        <div class="kpi"><span class="label">Personas en fila L<sub>q</sub></span><span class="v" id="kLq">–</span><span class="s" id="kLqS">–</span></div>
+        <div class="kpi"><span class="label">Prob. de esperar</span><span class="v" id="kPw">–</span><span class="s" id="kPwS">–</span></div>
+      </div>
+      <div class="previews">
+        <a class="panel preview" href="#escenarios">
+          <div class="panel-h"><h3>Espera por número de servidores</h3><span class="go">Escenarios →</span></div>
+          <div class="panel-b"><div class="mini"><canvas id="mWait" aria-label="Vista previa de escenarios"></canvas></div></div>
+        </a>
+        <a class="panel preview" href="#dia">
+          <div class="panel-h"><h3>Fila durante el día</h3><span class="go">Día simulado →</span></div>
+          <div class="panel-b"><div class="mini"><canvas id="mQueue" aria-label="Vista previa de la fila"></canvas></div></div>
+        </a>
+        <a class="panel preview" href="#validacion">
+          <div class="panel-h"><h3>Teoría contra simulación</h3><span class="go">Validación →</span></div>
+          <div class="panel-b"><span class="big-ratio" id="pValRatio">–</span><span class="howto" id="pValTxt">indicadores coinciden con la fórmula</span></div>
+        </a>
+        <a class="panel preview" href="#ajuste">
+          <div class="panel-h"><h3>Supuestos de distribución</h3><span class="go">Ajuste de datos →</span></div>
+          <div class="panel-b checks" id="pFit"></div>
+        </a>
+      </div>
+    </section>
+
+    <!-- ESCENARIOS -->
+    <section class="view" id="v-escenarios" hidden>
+      <div class="vhead"><h2>Escenarios de servidores</h2><span class="label">Objetivo 4 · Comparar</span></div>
+      <p class="intro">Cada escenario se calcula con la fórmula y se comprueba con simulación. Cambie de vista para ver la espera, el costo o la carga de los servidores.</p>
+      <div class="panel">
+        <div class="panel-h"><h3 id="scTitle">Espera promedio en fila</h3>
+          <div class="seg" role="group" aria-label="Vista de escenarios">
+            <button type="button" data-sc="wait" aria-pressed="true">Espera</button>
+            <button type="button" data-sc="cost" aria-pressed="false">Costo</button>
+            <button type="button" data-sc="util" aria-pressed="false">Utilización</button>
+          </div></div>
+        <div class="panel-b"><div class="canvas"><canvas id="chSc" aria-label="Gráfica de escenarios"></canvas></div><p class="howto" id="scHow"></p></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h3>Tabla de escenarios</h3><span class="small-tag">fila resaltada: configuración actual · borde amarillo: recomendada</span></div>
+        <div class="tbl"><table id="scTable"></table></div>
+      </div>
+    </section>
+
+    <!-- VALIDACIÓN -->
+    <section class="view" id="v-validacion" hidden>
+      <div class="vhead"><h2>Validación del modelo</h2><span class="label">Objetivo 3 · Construir el modelo</span></div>
+      <p class="intro">Si el valor teórico cae dentro del intervalo de confianza del 95 % de la simulación, el modelo analítico describe bien el sistema.</p>
+      <div class="panel">
+        <div class="panel-h"><h3>Indicadores: fórmula y simulación</h3><span class="small-tag" id="valModel">–</span></div>
+        <div class="tbl"><table id="valTable"></table></div>
+        <div class="panel-b"><p class="howto" id="valNote"></p></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h3>Convergencia de la espera simulada</h3><span class="small-tag">promedio acumulado por réplica</span></div>
+        <div class="panel-b"><div class="canvas"><canvas id="chConv" aria-label="Convergencia de la espera simulada"></canvas></div>
+          <p class="howto">A medida que se agregan días simulados, el promedio de la espera se acerca al valor de la fórmula. Esta es la evidencia de que el modelo y la simulación describen el mismo sistema.</p></div>
+      </div>
+    </section>
+
+    <!-- DÍA SIMULADO -->
+    <section class="view" id="v-dia" hidden>
+      <div class="vhead"><h2>Un día simulado</h2><span class="label">Comportamiento en el tiempo</span></div>
+      <p class="intro">Personas esperando minuto a minuto durante la franja. Muestra los picos que el promedio no deja ver.</p>
+      <div class="panel">
+        <div class="panel-h"><h3>Personas en fila</h3>
+          <div class="seg" role="group" aria-label="Configuración mostrada">
+            <button type="button" data-day="both" aria-pressed="true">Comparar</button>
+            <button type="button" data-day="cur" aria-pressed="false">Actual</button>
+            <button type="button" data-day="rec" aria-pressed="false">Recomendada</button>
+          </div></div>
+        <div class="panel-b split">
+          <div class="canvas"><canvas id="chDay" aria-label="Personas en fila a lo largo del día"></canvas></div>
+          <dl class="facts" id="dayFacts"></dl>
+        </div>
+      </div>
+    </section>
+
+    <!-- AJUSTE -->
+    <section class="view" id="v-ajuste" hidden>
+      <div class="vhead"><h2>Ajuste de datos</h2><span class="label">Objetivos 1 y 2 · Caracterizar y estimar</span></div>
+      <p class="intro" id="fitIntro">–</p>
+      <div class="panel">
+        <div class="panel-h"><h3 id="fitTitle">Tiempo entre llegadas</h3>
+          <div class="seg" role="group" aria-label="Variable analizada">
+            <button type="button" data-fit="ia" aria-pressed="true">Llegadas</button>
+            <button type="button" data-fit="sv" aria-pressed="false">Servicio</button>
+          </div></div>
+        <div class="panel-b split">
+          <div class="canvas"><canvas id="chFit" aria-label="Histograma y curva exponencial"></canvas></div>
+          <dl class="facts" id="fitFacts"></dl>
+        </div>
+      </div>
+      <p class="howto">Kolmogórov-Smirnov con corrección de Lilliefors (Stephens, 1974), porque la media se estima con la misma muestra. Chi-cuadrado con clases equiprobables y gl = clases − 2. Significancia α = 0,05.</p>
+    </section>
+
+    <!-- MÉTODO -->
+    <section class="view" id="v-metodo" hidden>
+      <div class="vhead"><h2>Método</h2><span class="label">Fórmulas y supuestos</span></div>
+      <div class="method">
+        <div class="panel"><div class="panel-h"><h3>Simulación de eventos discretos</h3></div><div class="panel-b">
+          <p>Las llegadas se generan con tiempos exponenciales de media 1/λ (proceso de Poisson). Cada usuario toma el primer servidor libre en orden de llegada y su servicio sigue la distribución elegida. Se descarta el primer 10 % de la franja como calentamiento.</p>
+        </div></div>
+        <div class="panel"><div class="panel-h"><h3>Modelo M/M/c</h3></div><div class="panel-b">
+          <div class="formula">W<sub>q</sub> = C(c, λ/μ) / (cμ − λ)</div>
+          <div class="formula">L<sub>q</sub> = λ·W<sub>q</sub> · W = W<sub>q</sub> + 1/μ · L = λ·W</div>
+          <p>C es la probabilidad de esperar (Erlang C). La última relación es la fórmula de Little (1961).</p>
+        </div></div>
+        <div class="panel"><div class="panel-h"><h3>Servicio no exponencial</h3></div><div class="panel-b">
+          <div class="formula">W<sub>q</sub>(M/G/c) ≈ W<sub>q</sub>(M/M/c) · (1 + CV²) / 2</div>
+          <p>Exacta para un servidor (Pollaczek-Khinchine). Para varios servidores es la aproximación de Lee-Longton, por eso puede diferir un poco de la simulación.</p>
+        </div></div>
+        <div class="panel"><div class="panel-h"><h3>Estabilidad y recomendación</h3></div><div class="panel-b">
+          <ul>
+            <li>El sistema es estable solo si ρ = λ/(cμ) &lt; 1.</li>
+            <li>Costo total por hora = c · costo por servidor + λ · W<sub>q</sub> · costo de espera.</li>
+            <li>Se recomienda el escenario de menor costo entre los que cumplen la espera aceptable.</li>
+            <li>Intervalo de confianza: media ± t<sub>0,975</sub> · s/√n sobre las réplicas.</li>
+          </ul>
+        </div></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const fmt=(x,d=2)=>Number.isFinite(x)?x.toLocaleString('es-CO',{minimumFractionDigits:d,maximumFractionDigits:d}):'–';
+const cop=x=>Number.isFinite(x)?'$'+Math.round(x).toLocaleString('es-CO'):'–';
+const pct=x=>Number.isFinite(x)?fmt(x*100,1)+' %':'–';
+
+/* ---------- plantillas ---------- */
+const PRESETS={
+  banco:{lam:40,mu:15,c:3,dist:'exp',cv:0.6,hours:8,cs:25000,cw:20000,thr:5},
+  urg:{lam:18,mu:5,c:4,dist:'logn',cv:0.8,hours:12,cs:45000,cw:30000,thr:15},
+  call:{lam:120,mu:12,c:11,dist:'exp',cv:0.6,hours:8,cs:18000,cw:15000,thr:1}
+};
+let applying=false;
+$('preset').addEventListener('change',()=>{
+  const pr=PRESETS[$('preset').value];if(!pr)return;
+  applying=true;
+  for(const k of ['lam','mu','c','cv','hours','thr'])setVal(k,pr[k]);
+  $('cs_n').value=pr.cs;$('cw_n').value=pr.cw;$('dist').value=pr.dist;$('cvField').hidden=pr.dist!=='logn';
+  applying=false;schedule();
+});
+function markCustom(){if(!applying)$('preset').value='custom';}
+
+/* ---------- controles ---------- */
+const RANGES=['lam','mu','c','cv','hours','reps','thr'];
+RANGES.forEach(id=>{
+  const r=$(id),n=$(id+'_n');
+  r.addEventListener('input',()=>{n.value=r.value;if(id!=='reps')markCustom();schedule();});
+  n.addEventListener('input',()=>{const v=parseFloat(n.value);if(Number.isFinite(v)){if(v>parseFloat(r.max))r.max=v;r.value=v;}if(id!=='reps')markCustom();schedule();});
+});
+['cs_n','cw_n'].forEach(id=>$(id).addEventListener('input',()=>{markCustom();schedule();}));
+$('seed_n').addEventListener('input',schedule);
+$('dist').addEventListener('change',()=>{$('cvField').hidden=$('dist').value!=='logn';markCustom();schedule();});
+$('newSeed').addEventListener('click',()=>{$('seed_n').value=1+Math.floor(Math.random()*99999);schedule();});
+$('ctlToggle').addEventListener('click',()=>{const c=$('console');const closed=c.classList.toggle('closed');$('ctlToggle').setAttribute('aria-expanded',String(!closed));$('ctlArrow').textContent=closed?'▼':'▲';});
+
+function setVal(id,v){$(id+'_n').value=v;const r=$(id);if(r){if(v>parseFloat(r.max))r.max=v;if(v<parseFloat(r.min))r.min=v;r.value=v;}}
+function val(id){const v=parseFloat($(id+'_n').value);return Number.isFinite(v)?v:parseFloat($(id+'_n').defaultValue);}
+function params(){
+  return {lam:Math.max(0.1,val('lam')),mu:Math.max(0.1,val('mu')),c:Math.max(1,Math.round(val('c'))),
+    dist:$('dist').value,cv:Math.max(0.01,val('cv')),hours:Math.max(0.5,val('hours')),
+    reps:Math.max(2,Math.min(300,Math.round(val('reps')))),seed:Math.round(val('seed'))||1,
+    cs:Math.max(0,val('cs')),cw:Math.max(0,val('cw')),thr:Math.max(0.1,val('thr'))};
+}
+function cvOf(p){return p.dist==='exp'?1:p.dist==='det'?0:p.cv;}
+
+/* ---------- aleatoriedad ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gauss(rng){return Math.sqrt(-2*Math.log(1-rng()))*Math.cos(2*Math.PI*rng());}
+function makeSvc(p,rng){
+  const m=1/p.mu;
+  if(p.dist==='exp')return()=>-Math.log(1-rng())*m;
+  if(p.dist==='det')return()=>m;
+  const s2=Math.log(1+p.cv*p.cv),s=Math.sqrt(s2),ml=Math.log(m)-s2/2;
+  return()=>Math.exp(ml+s*gauss(rng));
+}
+
+/* ---------- simulación de eventos discretos (G/G/c, FIFO) ---------- */
+function simulateOnce(p,c,rng,wantSeries){
+  const T=p.hours,w0=T*0.1,span=T-w0;
+  const free=new Float64Array(c),svc=makeSvc(p,rng);
+  const ev=[],ia=[],sv=[];let t=0,sumWq=0,sumW=0,nObs=0,nWait=0,busy=0;
+  for(;;){
+    const d=-Math.log(1-rng())/p.lam;t+=d;if(t>T)break;ia.push(d);
+    let i=0;for(let k=1;k<c;k++)if(free[k]<free[i])i=k;
+    const st=Math.max(t,free[i]),s=svc(),end=st+s;free[i]=end;sv.push(s);
+    ev.push([t,1,1],[st,-1,0],[end,0,-1]);
+    if(t>=w0){sumWq+=st-t;sumW+=end-t;nObs++;if(st-t>1e-12)nWait++;}
+    const a=Math.max(st,w0),b=Math.min(end,T);if(b>a)busy+=b-a;
+  }
+  ev.sort((x,y)=>x[0]-y[0]);
+  let q=0,n=0,prev=0,aQ=0,aN=0;const series=[];let nextMin=0;
+  for(const e of ev){
+    const tt=e[0];
+    if(wantSeries){while(nextMin/60<=Math.min(tt,T)){series.push(q);nextMin++;}}
+    const a=Math.max(prev,w0),b=Math.min(tt,T);if(b>a){aQ+=q*(b-a);aN+=n*(b-a);}
+    prev=tt;q+=e[1];n+=e[2];
+  }
+  if(prev<T){const a=Math.max(prev,w0);aQ+=q*(T-a);aN+=n*(T-a);}
+  if(wantSeries)while(nextMin/60<=T){series.push(q);nextMin++;}
+  const lamObs=nObs/span,W=nObs?sumW/nObs:0;
+  return {Wq:nObs?sumWq/nObs:0,W,Lq:aQ/span,L:aN/span,rho:busy/(c*span),Pw:nObs?nWait/nObs:0,little:lamObs*W,ia,sv,series};
+}
+function runReps(p,c,reps,seed,keepSeries){
+  const rng=mulberry32(seed);const acc={Wq:[],W:[],Lq:[],L:[],rho:[],Pw:[],little:[]};let first=null;
+  for(let r=0;r<reps;r++){const s=simulateOnce(p,c,rng,keepSeries&&r===0);for(const k in acc)acc[k].push(s[k]);if(r===0)first=s;}
+  return {acc,first};
+}
+const TT=[[1,12.706],[2,4.303],[3,3.182],[4,2.776],[5,2.571],[6,2.447],[7,2.365],[8,2.306],[9,2.262],[10,2.228],[12,2.179],[15,2.131],[20,2.086],[25,2.060],[30,2.042],[40,2.021],[60,2.000],[120,1.980]];
+function tcrit(df){if(df>120)return 1.96;for(const [k,v] of TT)if(df<=k)return v;return 1.96;}
+function ci(arr){const n=arr.length,m=arr.reduce((a,b)=>a+b,0)/n;const sd=Math.sqrt(arr.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,n-1));return {m,h:tcrit(n-1)*sd/Math.sqrt(n)};}
+
+/* ---------- fórmulas analíticas ---------- */
+function erlangC(c,a){let term=1,sum=0;for(let k=0;k<c;k++){if(k>0)term*=a/k;sum+=term;}const tc=term*a/c,rho=a/c,pc=tc/(1-rho);return pc/(sum+pc);}
+function analytic(p,c){
+  const a=p.lam/p.mu,rho=a/c,cv=cvOf(p);
+  if(rho>=1)return {stable:false,rho,Wq:Infinity};
+  const C=erlangC(c,a),Wq=C/(c*p.mu-p.lam)*(1+cv*cv)/2,Lq=p.lam*Wq,W=Wq+1/p.mu,L=p.lam*W;
+  return {stable:true,rho,Wq,Lq,W,L,Pw:p.dist==='exp'?C:NaN,exact:p.dist==='exp'||c===1};
+}
+function kendall(p,c){return 'M/'+(p.dist==='exp'?'M':p.dist==='det'?'D':'G')+'/'+c;}
+
+/* ---------- pruebas de bondad de ajuste ---------- */
+function gln(x){const k=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];let y=x,tmp=x+5.5;tmp-=(x+0.5)*Math.log(tmp);let ser=1.000000000190015;for(let j=0;j<6;j++)ser+=k[j]/++y;return -tmp+Math.log(2.5066282746310005*ser/x);}
+function gammaP(a,x){
+  if(x<=0)return 0;
+  if(x<a+1){let ap=a,sum=1/a,del=sum;for(let n=0;n<500;n++){ap++;del*=x/ap;sum+=del;if(Math.abs(del)<Math.abs(sum)*1e-13)break;}return sum*Math.exp(-x+a*Math.log(x)-gln(a));}
+  let b=x+1-a,c=1e300,d=1/b,h=d;
+  for(let i=1;i<500;i++){const an=-i*(i-a);b+=2;d=an*d+b;if(Math.abs(d)<1e-300)d=1e-300;c=b+an/c;if(Math.abs(c)<1e-300)c=1e-300;d=1/d;const del=d*c;h*=del;if(Math.abs(del-1)<1e-13)break;}
+  return 1-Math.exp(-x+a*Math.log(x)-gln(a))*h;
+}
+function fitExp(x){
+  const n=x.length;if(n<10)return null;
+  const s=[...x].sort((a,b)=>a-b),m=s.reduce((a,b)=>a+b,0)/n;
+  const sd=Math.sqrt(s.reduce((a,b)=>a+(b-m)**2,0)/(n-1));
+  let D=0;for(let i=0;i<n;i++){const F=1-Math.exp(-s[i]/m);D=Math.max(D,(i+1)/n-F,F-i/n);}
+  const sq=Math.sqrt(n),Dcrit=1.094/(sq+0.26+0.5/sq)+0.2/n,ksRej=D>Dcrit;
+  const k=Math.max(4,Math.min(15,Math.floor(n/5)));const cnt=new Array(k).fill(0);
+  for(const v of s){const F=1-Math.exp(-v/m);cnt[Math.min(k-1,Math.floor(F*k))]++;}
+  const E=n/k;let chi=0;for(const o of cnt)chi+=(o-E)**2/E;const df=k-2,pChi=1-gammaP(df/2,chi/2);
+  return {n,m,sd,cv:sd/m,D,Dcrit,ksRej,chi,df,pChi,chiRej:pChi<0.05,data:s};
+}
+function histogram(f){
+  const s=f.data,n=s.length,q98=s[Math.min(n-1,Math.floor(n*0.98))];
+  const hi=Math.max(q98,f.m*2.5),bins=16,w=hi/bins,cnt=new Array(bins).fill(0);
+  for(const v of s){if(v<hi)cnt[Math.min(bins-1,Math.floor(v/w))]++;}
+  const labels=[],dens=[],curve=[];
+  for(let i=0;i<bins;i++){const x=(i+0.5)*w;labels.push(fmt(x,1));dens.push(cnt[i]/(n*w));curve.push(Math.exp(-x/f.m)/f.m);}
+  return {labels,dens,curve};
+}
+
+/* ---------- CSV ---------- */
+let csvData=null;
+$('csv').addEventListener('change',e=>{
+  const file=e.target.files[0];if(!file)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const ia=[],sv=[];
+    for(const raw of String(rd.result).split(/\r?\n/)){
+      const line=raw.trim();if(!line)continue;
+      const parts=line.includes(';')?line.split(';').map(x=>x.replace(',','.')):line.split(/[,\t]/);
+      const a=parseFloat(parts[0]),b=parts.length>1?parseFloat(parts[1]):NaN;
+      if(Number.isFinite(a)&&a>0)ia.push(a);if(Number.isFinite(b)&&b>0)sv.push(b);
+    }
+    if(ia.length<10){$('csvStatus').textContent='No hay al menos 10 tiempos entre llegadas válidos en la primera columna. Revise el formato.';return;}
+    csvData={ia,sv,name:file.name};applying=true;
+    const mIa=ia.reduce((a,b)=>a+b,0)/ia.length,lam=60/mIa;setVal('lam',Math.round(lam*10)/10);
+    let msg=`${file.name}: ${ia.length} llegadas, λ ≈ ${fmt(lam,1)}/h`;
+    if(sv.length>=10){
+      const mS=sv.reduce((a,b)=>a+b,0)/sv.length,sdS=Math.sqrt(sv.reduce((a,b)=>a+(b-mS)**2,0)/(sv.length-1)),cv=sdS/mS;
+      setVal('mu',Math.round(600/mS)/10);
+      if(Math.abs(cv-1)>0.2){$('dist').value='logn';setVal('cv',Math.round(cv*20)/20);$('cvField').hidden=false;}
+      else{$('dist').value='exp';$('cvField').hidden=true;}
+      msg+=`; ${sv.length} servicios, μ ≈ ${fmt(60/mS,1)}/h, CV = ${fmt(cv,2)}.`;
+    } else msg+='. Sin columna de servicio.';
+    applying=false;$('preset').value='custom';
+    $('csvStatus').textContent=msg;$('clearCsv').hidden=false;schedule();
+  };
+  rd.readAsText(file);
+});
+$('clearCsv').addEventListener('click',()=>{csvData=null;$('csv').value='';$('csvStatus').textContent='Sin archivo: se usan datos simulados.';$('clearCsv').hidden=true;schedule();});
+
+/* ---------- cálculo ---------- */
+let timer=null,last=null;
+function schedule(){clearTimeout(timer);timer=setTimeout(run,200);}
+function run(){
+  const p=params();
+  const cMin=Math.floor(p.lam/p.mu)+1;
+  const cur=analytic(p,p.c);
+  const simCur=runReps(p,p.c,p.reps,p.seed,true);
+  const cHi=Math.max(cMin+5,p.c);
+  const sc=[];
+  for(let c=cMin;c<=cHi;c++){
+    const an=analytic(p,c);const sim=c===p.c?simCur:runReps(p,c,Math.min(p.reps,30),p.seed+c*101,false);
+    sc.push({c,an,simWq:ci(sim.acc.Wq),simRho:ci(sim.acc.rho),cost:c*p.cs+p.lam*an.Wq*p.cw,costSrv:c*p.cs,costWait:p.lam*an.Wq*p.cw,meets:an.Wq*60<=p.thr});
+  }
+  const ok=sc.filter(s=>s.meets);
+  const rec=(ok.length?ok:sc).reduce((a,b)=>b.cost<a.cost?b:a);
+  const recSim=rec.c===p.c?simCur:runReps(p,rec.c,1,p.seed+rec.c*101,true);
+  const useCsv=!!csvData;
+  const fIa=fitExp(useCsv?csvData.ia:simCur.first.ia.map(x=>x*60));
+  const fSv=fitExp(useCsv&&csvData.sv.length>=10?csvData.sv:simCur.first.sv.map(x=>x*60));
+  last={p,cMin,cur,simCur,sc,rec,metThr:ok.length>0,recSeries:recSim.first.series,fIa,fSv,useCsv};
+  renderText();drawActive();
+}
+
+/* ---------- textos y tablas ---------- */
+function renderText(){
+  const {p,cMin,cur,simCur,sc,rec,metThr,fIa,fSv,useCsv}=last;
+  const A=simCur.acc,sWq=ci(A.Wq),sLq=ci(A.Lq),sRho=ci(A.rho),sPw=ci(A.Pw);
+  $('kendall').textContent=kendall(p,p.c);
+  $('dispRho').textContent='ρ = '+fmt(cur.rho,2)+(cur.rho>=1?' · inestable':'');
+
+  $('cCur').textContent=p.c;
+  $('cCurS').textContent=cur.stable?`espera ${fmt(cur.Wq*60,1)} min`:'fila sin límite';
+  $('cRec').textContent=rec.c;
+  $('cRecS').textContent=`espera ${fmt(rec.an.Wq*60,1)} min · ${cop(rec.cost)}/h`;
+  $('kRho').textContent=pct(cur.rho);$('kRhoS').textContent=`simulado ${pct(sRho.m)}`;
+  $('kWq').textContent=cur.stable?fmt(cur.Wq*60,1)+' min':'∞';$('kWqS').textContent=`simulado ${fmt(sWq.m*60,1)} ± ${fmt(sWq.h*60,1)}`;
+  $('kLq').textContent=cur.stable?fmt(cur.Lq,1):'∞';$('kLqS').textContent=`simulado ${fmt(sLq.m,1)} ± ${fmt(sLq.h,1)}`;
+  $('kPw').textContent=Number.isFinite(cur.Pw)?pct(cur.Pw):pct(sPw.m);$('kPwS').textContent=Number.isFinite(cur.Pw)?`simulado ${pct(sPw.m)}`:'solo simulado';
+
+  const sm=$('summary');
+  if(!cur.stable){
+    sm.className='txt bad';
+    sm.innerHTML=`Con ${p.c} servidor${p.c>1?'es':''} llegan más usuarios de los que se pueden atender (ρ = ${fmt(cur.rho,2)}). La fila crece todo el día; en la simulación la espera promedio fue de ${fmt(sWq.m*60,0)} min. Se necesitan al menos ${cMin} servidores para estabilizar el sistema.`;
+  } else {
+    sm.className='txt';
+    const curSc=sc.find(s=>s.c===p.c);
+    let t=`Hoy cada usuario espera en promedio ${fmt(cur.Wq*60,1)} min y los servidores están ocupados el ${pct(cur.rho)} del tiempo. `;
+    if(rec.c===p.c)t+=metThr?`La configuración actual ya cumple la meta de ${fmt(p.thr,1)} min al menor costo.`:'Es la de menor costo, aunque ningún escenario cumple la meta de espera.';
+    else{
+      const dW=(rec.an.Wq-cur.Wq)/cur.Wq*100;
+      t+=`Con ${rec.c} servidores la espera ${dW<0?'baja':'sube'} a ${fmt(rec.an.Wq*60,1)} min (${dW<0?'−':'+'}${fmt(Math.abs(dW),0)} %) y el costo total pasa de ${cop(curSc?curSc.cost:NaN)} a ${cop(rec.cost)} por hora.`;
+      if(!metThr)t+=' Ningún escenario cumple la meta; se muestra el de menor costo.';
+    }
+    sm.innerHTML=t;
+  }
+
+  /* validación */
+  const vt=$('valTable');let matches=0,total=0;
+  $('valModel').textContent=`${kendall(p,p.c)} · ${p.reps} réplicas de ${fmt(p.hours,1)} h`;
+  if(!cur.stable){
+    vt.innerHTML='<tbody><tr><td>Con ρ ≥ 1 no hay valores teóricos de estado estable. Aumente c o μ.</td></tr></tbody>';$('valNote').textContent='';
+  } else {
+    const rows=[['Espera en fila W<sub>q</sub> (min)',cur.Wq*60,ci(A.Wq.map(x=>x*60))],['Tiempo en el sistema W (min)',cur.W*60,ci(A.W.map(x=>x*60))],
+      ['Personas en fila L<sub>q</sub>',cur.Lq,ci(A.Lq)],['Personas en el sistema L',cur.L,ci(A.L)],['Utilización ρ',cur.rho,ci(A.rho)],['Probabilidad de esperar',cur.Pw,ci(A.Pw)]];
+    let h='<thead><tr><th>Indicador</th><th>Fórmula</th><th>Simulación (IC 95 %)</th><th>Diferencia</th><th>Resultado</th></tr></thead><tbody>';
+    for(const [name,th,s] of rows){
+      const has=Number.isFinite(th);const diff=has?(s.m-th)/th*100:NaN;const inside=has&&Math.abs(s.m-th)<=Math.max(s.h,Math.abs(th)*0.03);
+      if(has){total++;if(inside)matches++;}
+      h+=`<tr><td>${name}</td><td class="n">${has?fmt(th,3):'–'}</td><td class="n">${fmt(s.m,3)} ± ${fmt(s.h,3)}</td><td class="n">${has?(diff>=0?'+':'')+fmt(diff,1)+' %':'–'}</td><td>${has?`<span class="tag ${inside?'ok':'bad'}">${inside?'Coincide':'Revisar'}</span>`:'<span class="tag na">Sin fórmula</span>'}</td></tr>`;
+    }
+    const L=ci(A.L),Lt=ci(A.little),dl=(L.m-Lt.m)/Lt.m*100;const lok=Math.abs(dl)<5;total++;if(lok)matches++;
+    h+=`<tr><td>Little: L frente a λ·W</td><td class="n">${fmt(Lt.m,3)}</td><td class="n">${fmt(L.m,3)} ± ${fmt(L.h,3)}</td><td class="n">${(dl>=0?'+':'')+fmt(dl,1)} %</td><td><span class="tag ${lok?'ok':'bad'}">${lok?'Se cumple':'Revisar'}</span></td></tr></tbody>`;
+    vt.innerHTML=h;
+    let note=cur.exact?'Fórmula exacta para este modelo.':'Fórmula aproximada (Lee-Longton); son normales diferencias pequeñas.';
+    if(cur.rho>0.9)note+=' Con ρ mayor a 0,9 el sistema tarda en estabilizarse y las franjas cortas tienden a dar esperas simuladas menores que la teoría; pruebe con más horas o más réplicas.';
+    $('valNote').textContent=note;
+  }
+  $('pValRatio').textContent=cur.stable?`${matches} de ${total}`:'—';
+  $('pValTxt').textContent=cur.stable?'indicadores de la simulación coinciden con la fórmula (IC 95 %)':'sin valores teóricos: el sistema actual es inestable';
+
+  /* escenarios */
+  let st='<thead><tr><th>Servidores</th><th>Utilización</th><th>W<sub>q</sub> fórmula</th><th>W<sub>q</sub> simulada</th><th>L<sub>q</sub></th><th>Costo / h</th><th>Meta</th></tr></thead><tbody>';
+  for(const s of sc){
+    const lbl=s.c+(s.c===p.c?' <span class="small-tag">actual</span>':'')+(s.c===rec.c?' <span class="small-tag">recomendado</span>':'');
+    st+=`<tr class="${s.c===p.c?'is-cur ':''}${s.c===rec.c?'is-rec':''}"><td>${lbl}</td><td class="n">${pct(s.an.rho)}</td><td class="n">${fmt(s.an.Wq*60,2)} min</td><td class="n">${fmt(s.simWq.m*60,2)} ± ${fmt(s.simWq.h*60,2)}</td><td class="n">${fmt(s.an.Lq,2)}</td><td class="n">${cop(s.cost)}</td><td><span class="tag ${s.meets?'ok':'bad'}">${s.meets?'Cumple':'No cumple'}</span></td></tr>`;
+  }
+  $('scTable').innerHTML=st+'</tbody>';
+
+  /* ajuste */
+  $('fitIntro').textContent=useCsv
+    ?`Datos del archivo ${csvData.name}. Se prueba si siguen una distribución exponencial, el supuesto de los modelos M/M/1 y M/M/c.`
+    :'Sin datos reales, las pruebas usan una muestra de un día simulado. Cuando tengan datos del centro de atención, cárguenlos en el panel izquierdo y este apartado los analizará.';
+  const pf=(f,name)=>{if(!f)return `<div><span>${name}</span><span class="tag na">Sin datos</span></div>`;const pass=!f.ksRej&&!f.chiRej;return `<div><span>${name} <span class="small-tag">n = ${f.n}, CV = ${fmt(f.cv,2)}</span></span><span class="tag ${pass?'ok':'bad'}">${pass?'Exponencial':'No exponencial'}</span></div>`;};
+  $('pFit').innerHTML=pf(fIa,'Tiempo entre llegadas')+pf(fSv,'Tiempo de servicio')+`<span class="howto">${useCsv?'Con los datos cargados.':'Con una muestra simulada.'}</span>`;
+}
+
+function fitFacts(f,sym){
+  if(!f)return '<dt>Datos insuficientes</dt><dd>n &lt; 10</dd>';
+  const pass=!f.ksRej&&!f.chiRej;
+  return `<dt>Veredicto</dt><dd><span class="tag ${pass?'ok':'bad'}">${pass?'Exponencial':'No exponencial'}</span></dd><div class="sep"></div>
+  <dt>Muestra n</dt><dd>${f.n}</dd><dt>Media</dt><dd>${fmt(f.m,2)} min</dd><dt>Desv. estándar</dt><dd>${fmt(f.sd,2)} min</dd>
+  <dt>Coef. de variación</dt><dd>${fmt(f.cv,2)}</dd><dt>Tasa estimada ${sym}</dt><dd>${fmt(60/f.m,1)} /h</dd><div class="sep"></div>
+  <dt>K-S: D</dt><dd>${fmt(f.D,3)}</dd><dt>Valor crítico</dt><dd>${fmt(f.Dcrit,3)}</dd><dt>Decisión K-S</dt><dd>${f.ksRej?'rechaza':'no rechaza'}</dd><div class="sep"></div>
+  <dt>χ² (gl ${f.df})</dt><dd>${fmt(f.chi,2)}</dd><dt>Valor p</dt><dd>${f.pChi<0.001?'&lt; 0,001':fmt(f.pChi,3)}</dd><dt>Decisión χ²</dt><dd>${f.chiRej?'rechaza':'no rechaza'}</dd>`;
+}
+
+/* ---------- gráficas ---------- */
+const charts={};const state={view:'resumen',sc:'wait',day:'both',fit:'ia'};
+function tok(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+function hex(c,a){if(!c.startsWith('#'))return c;const n=parseInt(c.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
+function draw(id,cfg){if(typeof Chart==='undefined')return;if(charts[id])charts[id].destroy();charts[id]=new Chart($(id),cfg);}
+function opts(mini){
+  const ink=tok('--ink-2'),grid=tok('--rule-2');
+  return {responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{display:!mini,position:'bottom',labels:{color:ink,boxWidth:10,boxHeight:10,font:{family:tok('--f-body'),size:12}}},tooltip:{enabled:!mini}},
+    scales:{x:{display:true,ticks:{color:ink,font:{family:tok('--f-mono'),size:11},display:!mini||true,maxTicksLimit:mini?6:12},grid:{display:false},border:{color:tok('--rule')}},
+      y:{display:!mini,beginAtZero:true,ticks:{color:ink,font:{family:tok('--f-mono'),size:11}},grid:{color:grid},border:{display:false}}}};
+}
+function axisTitle(o,ax,t){o.scales[ax].title={display:true,text:t,color:tok('--ink-2'),font:{family:tok('--f-body'),size:12}};}
+
+function scChart(id,mode,mini){
+  const {p,sc,rec}=last;const th=tok('--theory'),sim=tok('--sim'),lim=tok('--limit'),sig=tok('--signal');
+  const labels=sc.map(s=>mini?String(s.c):s.c+' serv.');const o=opts(mini);
+  const barColors=sc.map(s=>s.c===rec.c?sig:th);
+  if(mode==='wait'){
+    if(!mini)axisTitle(o,'y','minutos en fila');
+    const ds=[{type:'bar',label:'Fórmula',data:sc.map(s=>s.an.Wq*60),backgroundColor:barColors,order:3,maxBarThickness:56},
+      {type:'line',label:'Espera aceptable',data:sc.map(()=>p.thr),borderColor:lim,borderDash:[5,4],borderWidth:1.5,pointRadius:0,order:1}];
+    if(!mini)ds.splice(1,0,{type:'line',label:'Simulación',data:sc.map(s=>s.simWq.m*60),borderColor:sim,backgroundColor:sim,showLine:false,pointRadius:5,pointStyle:'rectRot',order:2});
+    draw(id,{type:'bar',data:{labels,datasets:ds},options:o});
+  } else if(mode==='cost'){
+    o.scales.x.stacked=true;o.scales.y.stacked=true;o.scales.y.ticks.callback=v=>'$'+(v/1000).toLocaleString('es-CO')+'k';
+    o.plugins.tooltip.callbacks={label:c=>c.dataset.label+': '+cop(c.parsed.y),footer:items=>'Total: '+cop(items.reduce((a,b)=>a+b.parsed.y,0))};
+    axisTitle(o,'y','COP por hora');
+    draw(id,{type:'bar',data:{labels,datasets:[
+      {label:'Costo de servidores',data:sc.map(s=>s.costSrv),backgroundColor:th,maxBarThickness:56},
+      {label:'Costo de espera de usuarios',data:sc.map(s=>s.costWait),backgroundColor:sim,maxBarThickness:56}]},options:o});
+  } else {
+    o.scales.y.max=1;o.scales.y.ticks.callback=v=>Math.round(v*100)+' %';axisTitle(o,'y','tiempo ocupado');
+    o.plugins.tooltip.callbacks={label:c=>c.dataset.label+': '+pct(c.parsed.y)};
+    draw(id,{type:'bar',data:{labels,datasets:[
+      {type:'bar',label:'Fórmula',data:sc.map(s=>s.an.rho),backgroundColor:barColors,maxBarThickness:56,order:2},
+      {type:'line',label:'Simulación',data:sc.map(s=>s.simRho.m),borderColor:sim,backgroundColor:sim,showLine:false,pointRadius:5,pointStyle:'rectRot',order:1}]},options:o});
+  }
+}
+function dayChart(id,mode,mini){
+  const {p,rec,simCur,recSeries}=last;const sim=tok('--sim'),th=tok('--theory');
+  const cur=simCur.first.series,n=Math.max(cur.length,recSeries.length);
+  const labels=Array.from({length:n},(_,i)=>Math.floor(i/60)+':'+String(i%60).padStart(2,'0'));
+  const o=opts(mini);if(!mini){axisTitle(o,'y','personas en fila');axisTitle(o,'x','hora de la franja');}
+  const ds=[];
+  if(mode!=='rec')ds.push({label:`${p.c} servidor${p.c>1?'es':''} (actual)`,data:cur,borderColor:sim,backgroundColor:hex(sim,.18),fill:true,stepped:true,pointRadius:0,borderWidth:1.4});
+  if(mode!=='cur'&&rec.c!==p.c)ds.push({label:`${rec.c} servidores (recomendada)`,data:recSeries,borderColor:th,backgroundColor:hex(th,.22),fill:true,stepped:true,pointRadius:0,borderWidth:1.4});
+  if(mode==='rec'&&rec.c===p.c)ds.push({label:`${p.c} servidores (actual y recomendada)`,data:cur,borderColor:th,backgroundColor:hex(th,.22),fill:true,stepped:true,pointRadius:0,borderWidth:1.4});
+  draw(id,{type:'line',data:{labels,datasets:ds},options:o});
+}
+function seriesFacts(s){const n=s.length;const mx=Math.max(...s),mean=s.reduce((a,b)=>a+b,0)/n,busy=s.filter(x=>x>0).length/n,long=s.filter(x=>x>=5).length;return {mx,mean,busy,long};}
+function dayFacts(){
+  const {p,rec,simCur,recSeries}=last;const a=seriesFacts(simCur.first.series),b=seriesFacts(recSeries);
+  const row=(k,f)=>`<dt>${k}</dt><dd>${f}</dd>`;
+  let h=`<dt><b>Actual · ${p.c} serv.</b></dt><dd></dd>`+row('Fila máxima',a.mx+' pers.')+row('Fila promedio',fmt(a.mean,1)+' pers.')+row('Tiempo con fila',pct(a.busy))+row('Minutos con 5 o más',a.long+' min');
+  if(rec.c!==p.c)h+=`<div class="sep"></div><dt><b>Recomendada · ${rec.c} serv.</b></dt><dd></dd>`+row('Fila máxima',b.mx+' pers.')+row('Fila promedio',fmt(b.mean,1)+' pers.')+row('Tiempo con fila',pct(b.busy))+row('Minutos con 5 o más',b.long+' min');
+  h+=`<div class="sep"></div><dt>Semilla</dt><dd>${p.seed}</dd>`;
+  $('dayFacts').innerHTML=h;
+}
+function convChart(){
+  const {cur,simCur}=last;const w=simCur.acc.Wq.map(x=>x*60);let s=0;const cm=w.map((x,i)=>(s+=x)/(i+1));
+  const o=opts(false);axisTitle(o,'y','minutos');axisTitle(o,'x','réplicas (días simulados)');
+  const ds=[{label:'Promedio acumulado simulado',data:cm,borderColor:tok('--sim'),pointRadius:0,borderWidth:2,tension:.2}];
+  if(cur.stable)ds.push({label:'Valor de la fórmula',data:cm.map(()=>cur.Wq*60),borderColor:tok('--theory'),borderDash:[6,4],pointRadius:0,borderWidth:1.5});
+  draw('chConv',{type:'line',data:{labels:cm.map((_,i)=>i+1),datasets:ds},options:o});
+}
+function fitChart(){
+  const f=state.fit==='ia'?last.fIa:last.fSv;
+  $('fitTitle').textContent=state.fit==='ia'?'Tiempo entre llegadas':'Tiempo de servicio';
+  $('fitFacts').innerHTML=fitFacts(f,state.fit==='ia'?'λ̂':'μ̂');
+  if(!f){if(charts.chFit){charts.chFit.destroy();delete charts.chFit;}return;}
+  const hg=histogram(f);const o=opts(false);axisTitle(o,'x','minutos');axisTitle(o,'y','densidad');o.scales.x.ticks.maxTicksLimit=8;
+  draw('chFit',{type:'bar',data:{labels:hg.labels,datasets:[
+    {type:'bar',label:'Datos observados',data:hg.dens,backgroundColor:hex(tok('--theory'),.55),barPercentage:1,categoryPercentage:.96,order:2},
+    {type:'line',label:'Exponencial con la misma media',data:hg.curve,borderColor:tok('--sim'),pointRadius:0,borderWidth:2,tension:.3,order:1}]},options:o});
+}
+const SC_TXT={
+  wait:['Espera promedio en fila','Barras: valor de la fórmula (amarilla = recomendada). Rombos: promedio simulado. Línea roja: espera aceptable.'],
+  cost:['Costo total por hora','Cada barra suma el costo de los servidores y el costo de la espera de los usuarios. El mínimo indica el equilibrio entre ambos.'],
+  util:['Utilización de los servidores','Proporción del tiempo que cada servidor está ocupado. Valores cercanos al 100 % anticipan filas largas; valores bajos indican personal subutilizado.']
+};
+function drawActive(){
+  if(!last)return;
+  if(typeof Chart!=='undefined')Chart.defaults.font.family=tok('--f-body');
+  if(state.view==='resumen'){scChart('mWait','wait',true);dayChart('mQueue','both',true);}
+  else if(state.view==='escenarios'){$('scTitle').textContent=SC_TXT[state.sc][0];$('scHow').textContent=SC_TXT[state.sc][1];scChart('chSc',state.sc,false);}
+  else if(state.view==='validacion')convChart();
+  else if(state.view==='dia'){dayChart('chDay',state.day,false);dayFacts();}
+  else if(state.view==='ajuste')fitChart();
+}
+
+/* ---------- segmentos ---------- */
+function segs(attr,key){
+  document.querySelectorAll(`[data-${attr}]`).forEach(b=>b.addEventListener('click',()=>{
+    state[key]=b.dataset[attr];
+    document.querySelectorAll(`[data-${attr}]`).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+    drawActive();
+  }));
+}
+segs('sc','sc');segs('day','day');segs('fit','fit');
+
+/* ---------- navegación por apartados ---------- */
+const VIEWS=['resumen','escenarios','validacion','dia','ajuste','metodo'];
+function show(){
+  const h=location.hash.slice(1);state.view=VIEWS.includes(h)?h:'resumen';
+  for(const v of VIEWS)$('v-'+v).hidden=v!==state.view;
+  document.querySelectorAll('.tabs a').forEach(a=>{if(a.dataset.v===state.view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+  drawActive();
+}
+window.addEventListener('hashchange',()=>{show();window.scrollTo(0,0);});
+
+/* tema */
+const mq=window.matchMedia('(prefers-color-scheme: dark)');
+if(mq.addEventListener)mq.addEventListener('change',drawActive);
+new MutationObserver(drawActive).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+show();run();
+})();
+</script>
+
+</body></html>
